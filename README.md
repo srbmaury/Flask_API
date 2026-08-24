@@ -15,6 +15,10 @@ python predict.py
 
 The API listens on `http://127.0.0.1:8000` by default.
 
+Optional moderation thresholds are `FLAG_CONFIDENCE_THRESHOLD` (default
+`0.60`) for full messages and `SEGMENT_FLAG_CONFIDENCE_THRESHOLD` (default
+`0.55`) for offensive segments inside mixed-content text.
+
 ```bash
 curl http://127.0.0.1:8000/health
 curl -X POST http://127.0.0.1:8000/api/predict \
