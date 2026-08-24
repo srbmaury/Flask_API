@@ -1,59 +1,85 @@
-# Backend (Python) with Flask
+import csv
+import logging
+import os
+from pathlib import Path
 
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
-import pandas as pd
-import tensorflow as tf
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
 
+BASE_DIR = Path(__file__).resolve().parent
+DATASET_PATH = Path(os.environ.get("MODERATION_DATASET", BASE_DIR / "labeled_data.csv"))
+MAX_TEXT_LENGTH = 10_000
+CLASS_NAMES = {0: "Hateful Content", 1: "Offensive Content", 2: "Neither"}
+
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+logger = logging.getLogger(__name__)
+
+
+def load_training_data(path):
+    texts, labels = [], []
+    with path.open(encoding="utf-8", newline="") as dataset:
+        for row in csv.DictReader(dataset):
+            text = row.get("tweet", "").strip()
+            try:
+                label = int(row.get("class", ""))
+            except ValueError:
+                continue
+            if text and label in CLASS_NAMES:
+                texts.append(text)
+                labels.append(label)
+    if not texts:
+        raise RuntimeError(f"No valid training rows found in {path}")
+    return texts, labels
+
+
+def train_model(path=DATASET_PATH):
+    texts, labels = load_training_data(path)
+    logger.info("Training moderation model from %s rows", len(texts))
+    pipeline = Pipeline([
+        ("features", TfidfVectorizer(
+            lowercase=True,
+            strip_accents="unicode",
+            ngram_range=(1, 2),
+            min_df=2,
+            max_features=75_000,
+            sublinear_tf=True,
+        )),
+        ("classifier", LogisticRegression(
+            class_weight="balanced",
+            max_iter=500,
+            random_state=42,
+        )),
+    ])
+    pipeline.fit(texts, labels)
+    return pipeline
+
+
+model = train_model()
 app = Flask(__name__)
 CORS(app)
 
-# Load the data from the Excel file
-data = pd.read_csv('labeled_data.csv')
 
-# Preprocess the text data
-tweets = data['tweet'].values
-labels = data['class'].values
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"})
 
-# Tokenizer for preprocessing text
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(tweets)
-vocab_size = len(tokenizer.word_index) + 1
 
-# Convert text to sequences
-sequences = tokenizer.texts_to_sequences(tweets)
-
-# Pad sequences to a fixed length
-max_sequence_length = 100
-padded_sequences = pad_sequences(sequences, maxlen=max_sequence_length)
-
-# Load the trained model
-model_path = 'trained_model.h5'
-model = load_model(model_path)
-
-# API endpoint to handle text inputs and return predictions
-@app.route('/api/predict', methods=['POST'])
+@app.post("/api/predict")
 def predict():
-    data = request.json  # Receive JSON data with 'text' key containing the input text
-    text = data['text']
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("text"), str):
+        return jsonify({"error": "JSON body must include a text string"}), 400
+    text = payload["text"].strip()
+    if not text:
+        return jsonify({"error": "text must not be empty"}), 400
+    if len(text) > MAX_TEXT_LENGTH:
+        return jsonify({"error": f"text must not exceed {MAX_TEXT_LENGTH} characters"}), 413
+    predicted_class = int(model.predict([text])[0])
+    return jsonify({"prediction": CLASS_NAMES[predicted_class]})
 
-    # Tokenize and preprocess the input text
-    sequence = tokenizer.texts_to_sequences([text])
-    padded_sequence = pad_sequences(sequence, maxlen=max_sequence_length)
-    # Make predictions using the loaded model
-    prediction = model.predict(padded_sequence)
-    predicted_class = int(prediction.argmax())  # Convert numpy int to Python int
-    # Process the prediction results
-    class_names = ['Hateful Content', 'Offensive Content', 'Neither']
-    predicted_label = class_names[predicted_class]
-    print(text, prediction);
-    # Convert the prediction result to a JSON-serializable format
-    response = {'prediction': predicted_label}
 
-    return jsonify(response)
-
-if __name__ == '__main__':
-    app.run(port=8000)  # Start the Flask app on port 5000
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")))
