@@ -19,9 +19,15 @@ class PredictionApiTest(unittest.TestCase):
     def test_predicts_supported_label(self):
         response = self.client.post("/api/predict", json={"text": "You are an idiot"})
         self.assertEqual(response.status_code, 200)
-        self.assertIn(response.get_json()["prediction"], {
-            "Hateful Content", "Offensive Content", "Neither",
-        })
+        self.assertIn(response.get_json()["prediction"], {"Hateful Content", "Offensive Content"})
+
+    def test_low_confidence_benign_message_is_not_flagged(self):
+        response = self.client.post(
+            "/api/predict",
+            json={"text": "[UX TEST] Real-time message from Maurya"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["prediction"], "Neither")
 
 
 if __name__ == "__main__":

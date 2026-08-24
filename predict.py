@@ -14,6 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = Path(os.environ.get("MODERATION_DATASET", BASE_DIR / "labeled_data.csv"))
 MODEL_PATH = Path(os.environ.get("MODERATION_MODEL", BASE_DIR / "moderation_model.joblib"))
 MAX_TEXT_LENGTH = 10_000
+FLAG_CONFIDENCE_THRESHOLD = float(os.environ.get("FLAG_CONFIDENCE_THRESHOLD", "0.60"))
 CLASS_NAMES = {0: "Hateful Content", 1: "Offensive Content", 2: "Neither"}
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
@@ -84,8 +85,16 @@ def predict():
         return jsonify({"error": "text must not be empty"}), 400
     if len(text) > MAX_TEXT_LENGTH:
         return jsonify({"error": f"text must not exceed {MAX_TEXT_LENGTH} characters"}), 413
-    predicted_class = int(model.predict([text])[0])
-    return jsonify({"prediction": CLASS_NAMES[predicted_class]})
+    probabilities = model.predict_proba([text])[0]
+    winning_index = int(probabilities.argmax())
+    predicted_class = int(model.classes_[winning_index])
+    confidence = float(probabilities[winning_index])
+    if predicted_class != 2 and confidence < FLAG_CONFIDENCE_THRESHOLD:
+        predicted_class = 2
+    return jsonify({
+        "prediction": CLASS_NAMES[predicted_class],
+        "confidence": round(confidence, 4),
+    })
 
 
 if __name__ == "__main__":
