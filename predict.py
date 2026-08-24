@@ -1,6 +1,7 @@
 import csv
 import logging
 import os
+import re
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -15,6 +16,7 @@ DATASET_PATH = Path(os.environ.get("MODERATION_DATASET", BASE_DIR / "labeled_dat
 MODEL_PATH = Path(os.environ.get("MODERATION_MODEL", BASE_DIR / "moderation_model.joblib"))
 MAX_TEXT_LENGTH = 10_000
 FLAG_CONFIDENCE_THRESHOLD = float(os.environ.get("FLAG_CONFIDENCE_THRESHOLD", "0.60"))
+SEGMENT_FLAG_CONFIDENCE_THRESHOLD = float(os.environ.get("SEGMENT_FLAG_CONFIDENCE_THRESHOLD", "0.55"))
 CLASS_NAMES = {0: "Hateful Content", 1: "Offensive Content", 2: "Neither"}
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
@@ -85,11 +87,28 @@ def predict():
         return jsonify({"error": "text must not be empty"}), 400
     if len(text) > MAX_TEXT_LENGTH:
         return jsonify({"error": f"text must not exceed {MAX_TEXT_LENGTH} characters"}), 413
-    probabilities = model.predict_proba([text])[0]
-    winning_index = int(probabilities.argmax())
-    predicted_class = int(model.classes_[winning_index])
-    confidence = float(probabilities[winning_index])
-    if predicted_class != 2 and confidence < FLAG_CONFIDENCE_THRESHOLD:
+    segments = [segment.strip() for segment in re.split(r"[.!?\n]+", text) if segment.strip()]
+    candidates = [text, *segments] if len(segments) > 1 else [text]
+    probability_rows = model.predict_proba(candidates)
+
+    full_probabilities = probability_rows[0]
+    full_winner = int(full_probabilities.argmax())
+    predicted_class = int(model.classes_[full_winner])
+    confidence = float(full_probabilities[full_winner])
+
+    strongest_flag = None
+    for probabilities in probability_rows:
+        for class_id in (0, 1):
+            class_index = list(model.classes_).index(class_id)
+            score = float(probabilities[class_index])
+            if strongest_flag is None or score > strongest_flag[1]:
+                strongest_flag = (class_id, score)
+
+    full_is_confident_flag = predicted_class != 2 and confidence >= FLAG_CONFIDENCE_THRESHOLD
+    segment_is_confident_flag = strongest_flag and strongest_flag[1] >= SEGMENT_FLAG_CONFIDENCE_THRESHOLD
+    if segment_is_confident_flag and (not full_is_confident_flag or strongest_flag[1] > confidence):
+        predicted_class, confidence = strongest_flag
+    elif not full_is_confident_flag:
         predicted_class = 2
     return jsonify({
         "prediction": CLASS_NAMES[predicted_class],

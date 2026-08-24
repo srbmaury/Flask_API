@@ -29,6 +29,16 @@ class PredictionApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["prediction"], "Neither")
 
+    def test_offensive_segment_is_not_diluted_by_positive_sentences(self):
+        response = self.client.post("/api/predict", json={"text": (
+            "The morning was beautiful, and everyone felt hopeful. "
+            "Then the filthy bastard stormed in, shouting fucking bullshit "
+            "and calling the whole place a damn shithole. "
+            "Maya stayed kind and reminded everyone tomorrow could be wonderful."
+        )})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(response.get_json()["prediction"], {"Hateful Content", "Offensive Content"})
+
 
 if __name__ == "__main__":
     unittest.main()
