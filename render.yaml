@@ -3,7 +3,7 @@ services:
     name: offensive-content-api
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && python build_model.py
     startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 predict:app
     healthCheckPath: /health
     envVars:

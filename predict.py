@@ -5,12 +5,14 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
 BASE_DIR = Path(__file__).resolve().parent
 DATASET_PATH = Path(os.environ.get("MODERATION_DATASET", BASE_DIR / "labeled_data.csv"))
+MODEL_PATH = Path(os.environ.get("MODERATION_MODEL", BASE_DIR / "moderation_model.joblib"))
 MAX_TEXT_LENGTH = 10_000
 CLASS_NAMES = {0: "Hateful Content", 1: "Offensive Content", 2: "Neither"}
 
@@ -57,7 +59,12 @@ def train_model(path=DATASET_PATH):
     return pipeline
 
 
-model = train_model()
+if MODEL_PATH.exists():
+    logger.info("Loading moderation model from %s", MODEL_PATH)
+    model = joblib.load(MODEL_PATH)
+else:
+    logger.warning("Cached moderation model not found; training at startup")
+    model = train_model()
 app = Flask(__name__)
 CORS(app)
 
