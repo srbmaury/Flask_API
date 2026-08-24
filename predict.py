@@ -18,6 +18,11 @@ MAX_TEXT_LENGTH = 10_000
 FLAG_CONFIDENCE_THRESHOLD = float(os.environ.get("FLAG_CONFIDENCE_THRESHOLD", "0.60"))
 SEGMENT_FLAG_CONFIDENCE_THRESHOLD = float(os.environ.get("SEGMENT_FLAG_CONFIDENCE_THRESHOLD", "0.55"))
 CLASS_NAMES = {0: "Hateful Content", 1: "Offensive Content", 2: "Neither"}
+CLEAR_CONDEMNATION = re.compile(
+    r"^\s*(?:rape|racism|sexism|violence|abuse|harassment|hate(?: speech)?)\s+"
+    r"(?:is|are)\s+(?:illegal|wrong|harmful|unacceptable|never okay)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -87,6 +92,8 @@ def predict():
         return jsonify({"error": "text must not be empty"}), 400
     if len(text) > MAX_TEXT_LENGTH:
         return jsonify({"error": f"text must not exceed {MAX_TEXT_LENGTH} characters"}), 413
+    if CLEAR_CONDEMNATION.fullmatch(text):
+        return jsonify({"prediction": "Neither", "confidence": 1.0})
     segments = [segment.strip() for segment in re.split(r"[.!?\n]+", text) if segment.strip()]
     candidates = [text, *segments] if len(segments) > 1 else [text]
     probability_rows = model.predict_proba(candidates)

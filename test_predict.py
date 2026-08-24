@@ -39,6 +39,11 @@ class PredictionApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(response.get_json()["prediction"], {"Hateful Content", "Offensive Content"})
 
+    def test_clear_condemnation_is_not_flagged(self):
+        response = self.client.post("/api/predict", json={"text": "Rape is illegal"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["prediction"], "Neither")
+
 
 if __name__ == "__main__":
     unittest.main()
